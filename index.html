@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Japstore PH — Refund Sheet Generator</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --ink:#1b1f2a;
+    --paper:#f7f4ee;
+    --card:#ffffff;
+    --line:#e2ddd0;
+    --navy:#1f3a5f;
+    --navy-dark:#152a45;
+    --gold:#b8862e;
+    --gold-soft:#f1e3c6;
+    --ok:#2f7a4f;
+    --err:#a3352b;
+    --mono: 'JetBrains Mono', 'Courier New', monospace;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family: 'Inter', 'Segoe UI', Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{
+    max-width:920px;
+    margin:0 auto;
+    padding:48px 24px 80px;
+  }
+  header{
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    border-bottom:2px solid var(--navy);
+    padding-bottom:18px;
+    margin-bottom:36px;
+  }
+  header .brand{
+    font-size:13px;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+    color:var(--gold);
+    font-weight:700;
+  }
+  h1{
+    font-size:28px;
+    margin:4px 0 0;
+    font-weight:700;
+    letter-spacing:-0.01em;
+    color:var(--navy-dark);
+  }
+  .sub{
+    color:#5b5748;
+    font-size:14.5px;
+    max-width:60ch;
+    line-height:1.5;
+    margin-bottom:32px;
+  }
+  .card{
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:28px;
+    margin-bottom:24px;
+    box-shadow:0 1px 2px rgba(20,20,10,0.03);
+  }
+  .card h2{
+    font-size:12px;
+    text-transform:uppercase;
+    letter-spacing:.1em;
+    color:var(--navy);
+    margin:0 0 16px;
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+  .card h2 .num{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    width:20px;height:20px;
+    border-radius:50%;
+    background:var(--navy);
+    color:#fff;
+    font-size:11px;
+    font-weight:700;
+  }
+  .drop{
+    border:1.5px dashed #c9c2ac;
+    border-radius:8px;
+    padding:28px;
+    text-align:center;
+    color:#736f5f;
+    cursor:pointer;
+    transition:border-color .15s, background .15s;
+    font-size:14px;
+  }
+  .drop:hover, .drop.drag{
+    border-color:var(--gold);
+    background:var(--gold-soft);
+  }
+  .drop strong{ color:var(--navy-dark); }
+  input[type=file]{ display:none; }
+  .filename{
+    margin-top:14px;
+    font-family:var(--mono);
+    font-size:13px;
+    color:var(--navy-dark);
+    background:#f0ede3;
+    border-radius:6px;
+    padding:8px 12px;
+    display:none;
+  }
+  .filename.show{ display:inline-block; }
+  button{
+    font-family:inherit;
+    font-weight:600;
+    font-size:14px;
+    border:none;
+    border-radius:7px;
+    padding:12px 22px;
+    cursor:pointer;
+    transition:transform .05s, background .15s;
+  }
+  button:disabled{ opacity:.4; cursor:not-allowed; }
+  button.primary{
+    background:var(--navy);
+    color:#fff;
+  }
+  button.primary:hover:not(:disabled){ background:var(--navy-dark); }
+  button.primary:active:not(:disabled){ transform:translateY(1px); }
+  button.gold{
+    background:var(--gold);
+    color:#fff;
+  }
+  button.gold:hover:not(:disabled){ background:#9c7124; }
+  .actions{ display:flex; gap:12px; margin-top:18px; flex-wrap:wrap; }
+  .status{
+    margin-top:14px;
+    font-size:13.5px;
+    line-height:1.6;
+  }
+  .status.ok{ color:var(--ok); }
+  .status.err{ color:var(--err); white-space:pre-wrap; }
+  table.preview{
+    width:100%;
+    border-collapse:collapse;
+    font-size:12.5px;
+    font-family:var(--mono);
+  }
+  table.preview th, table.preview td{
+    border-bottom:1px solid var(--line);
+    padding:8px 10px;
+    text-align:left;
+    white-space:nowrap;
+    max-width:220px;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  table.preview th{
+    background:#f0ede3;
+    color:var(--navy-dark);
+    font-family:'Inter', sans-serif;
+    font-weight:700;
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:.04em;
+  }
+  table.preview tr:nth-child(even) td{ background:#fbfaf6; }
+  .scroll{ overflow-x:auto; border:1px solid var(--line); border-radius:8px; }
+  .note{
+    font-size:12.5px;
+    color:#736f5f;
+    margin-top:10px;
+    line-height:1.5;
+  }
+  .count{
+    color:var(--navy);
+    font-weight:700;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div>
+      <div class="brand">Japstore PH · Cards &amp; Hobbies</div>
+      <h1>Refund Sheet Generator</h1>
+    </div>
+  </header>
+
+  <p class="sub">
+    Upload an orders export. This tool sums the per-item amounts (values separated by
+    <code>|</code>) and builds a clean refund worksheet with one row per order, ready to hand to whoever processes refunds.
+  </p>
+
+  <div class="card">
+    <h2><span class="num">1</span> Upload orders export</h2>
+    <div class="drop" id="drop">
+      <div><strong>Click to choose a file</strong> or drag it here</div>
+      <div style="margin-top:6px;font-size:12.5px;">.xls, .xlsx, or .csv — exported orders file</div>
+    </div>
+    <input type="file" id="fileInput" accept=".xls,.xlsx,.csv">
+    <div class="filename" id="filename"></div>
+    <div class="status" id="uploadStatus"></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="num">2</span> Build the refund sheet</h2>
+    <p class="note">
+      Pulls <strong>Order Number</strong>, <strong>Customer</strong> → Name, <strong>Email</strong>, and <strong>Refund Details</strong> as-is.
+      Sums <strong>DP Total Amount per item</strong> → DP Total Amount, <strong>Allocation Amount</strong> → Order Total, and
+      <strong>Outstanding Balance</strong> → Refund. Rows are sorted A–Z by email. When the same email appears on
+      multiple orders, a <strong>TOTAL REFUND</strong> column shows the combined Refund for that email on its first
+      row only (rows aren't merged). Adds a blank <strong>Note</strong> column for you to fill in.
+    </p>
+    <div class="actions">
+      <button class="primary" id="processBtn" disabled>Build sheet</button>
+    </div>
+    <div class="status" id="processStatus"></div>
+  </div>
+
+  <div class="card" id="previewCard" style="display:none;">
+    <h2><span class="num">3</span> Preview &amp; download</h2>
+    <p class="note"><span class="count" id="rowCount"></span> — showing first 15 rows below.</p>
+    <div class="scroll">
+      <table class="preview" id="previewTable"></table>
+    </div>
+    <div class="actions">
+      <button class="gold" id="downloadBtn">Download Excel file</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const OUTPUT_HEADERS = ["Order Number","Name","Email","DP Total Amount","Order Total","Refund","TOTAL REFUND","Refund Details","Note"];
+
+// Source column -> what we need, matched by header text (robust to column reordering)
+const COL = {
+  orderNumber: ["Order Number"],
+  name: ["Customer","Name"],
+  email: ["Email"],
+  dpTotal: ["DP Total Amount per item"],
+  allocation: ["Allocation Amount"],
+  outstanding: ["Outstanding Balance"],
+  refundDetails: ["Refund Details"]
+};
+
+let sourceRows = null; // array of objects keyed by header
+let outputRows = null; // array of arrays (incl header)
+
+const drop = document.getElementById('drop');
+const fileInput = document.getElementById('fileInput');
+const filenameEl = document.getElementById('filename');
+const uploadStatus = document.getElementById('uploadStatus');
+const processBtn = document.getElementById('processBtn');
+const processStatus = document.getElementById('processStatus');
+const previewCard = document.getElementById('previewCard');
+const previewTable = document.getElementById('previewTable');
+const rowCount = document.getElementById('rowCount');
+const downloadBtn = document.getElementById('downloadBtn');
+
+drop.addEventListener('click', () => fileInput.click());
+drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('drag'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('drag'));
+drop.addEventListener('drop', e => {
+  e.preventDefault();
+  drop.classList.remove('drag');
+  if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', e => {
+  if (e.target.files.length) handleFile(e.target.files[0]);
+});
+
+function handleFile(file){
+  filenameEl.textContent = file.name;
+  filenameEl.classList.add('show');
+  uploadStatus.className = 'status';
+  uploadStatus.textContent = 'Reading file…';
+  processBtn.disabled = true;
+  previewCard.style.display = 'none';
+
+  const reader = new FileReader();
+  reader.onload = function(e){
+    try {
+      const buf = e.target.result;
+      sourceRows = parseWorkbook(buf, file.name);
+      if (!sourceRows.length){
+        throw new Error('No data rows found in the file.');
+      }
+      validateHeaders(sourceRows[0]);
+      uploadStatus.className = 'status ok';
+      uploadStatus.textContent = `Loaded ${sourceRows.length} order row(s).`;
+      processBtn.disabled = false;
+    } catch(err){
+      sourceRows = null;
+      uploadStatus.className = 'status err';
+      uploadStatus.textContent = 'Could not read this file: ' + err.message;
+    }
+  };
+  reader.onerror = function(){
+    uploadStatus.className = 'status err';
+    uploadStatus.textContent = 'Could not read this file.';
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// Detects HTML-table-disguised exports (common for .xls) vs real binary xlsx/xls/csv
+function parseWorkbook(arrayBuffer, filename){
+  const bytes = new Uint8Array(arrayBuffer.slice(0, 4000));
+  let head = '';
+  for (let i=0;i<bytes.length;i++) head += String.fromCharCode(bytes[i]);
+
+  if (/<html|<table/i.test(head)){
+    const decoder = new TextDecoder('utf-8');
+    const text = decoder.decode(arrayBuffer);
+    return parseHtmlTable(text);
+  }
+
+  const wb = XLSX.read(arrayBuffer, {type:'array'});
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  return XLSX.utils.sheet_to_json(sheet, {defval:''});
+}
+
+function parseHtmlTable(text){
+  const doc = new DOMParser().parseFromString(text, 'text/html');
+  const table = doc.querySelector('table');
+  if (!table) throw new Error('No table found in file.');
+  const trs = Array.from(table.querySelectorAll('tr'));
+  if (!trs.length) return [];
+  const headers = Array.from(trs[0].querySelectorAll('th,td')).map(td => td.textContent.trim());
+  const rows = [];
+  for (let i=1;i<trs.length;i++){
+    const cells = Array.from(trs[i].querySelectorAll('td,th')).map(td => td.textContent.trim());
+    if (!cells.length || cells.every(c => c === '')) continue;
+    const obj = {};
+    headers.forEach((h, idx) => { obj[h] = cells[idx] !== undefined ? cells[idx] : ''; });
+    rows.push(obj);
+  }
+  return rows;
+}
+
+function findKey(rowObj, candidates){
+  const keys = Object.keys(rowObj);
+  for (const c of candidates){
+    const hit = keys.find(k => k.trim().toLowerCase() === c.toLowerCase());
+    if (hit) return hit;
+  }
+  return null;
+}
+
+let RESOLVED = null;
+function validateHeaders(firstRow){
+  const resolved = {};
+  const missing = [];
+  for (const field in COL){
+    const key = findKey(firstRow, COL[field]);
+    if (!key) missing.push(COL[field][0]); else resolved[field] = key;
+  }
+  if (missing.length){
+    throw new Error('Missing expected column(s): ' + missing.join(', '));
+  }
+  RESOLVED = resolved;
+}
+
+// Sums "PHP 1,234.56 | PHP 2,000.00" style strings -> number
+function sumPipeAmounts(str){
+  if (str === null || str === undefined) return 0;
+  const s = String(str).trim();
+  if (!s || s === '-') return 0;
+  const parts = s.split('|');
+  let total = 0;
+  for (let part of parts){
+    part = part.replace(/php/gi, '').replace(/,/g, '').trim();
+    if (!part || part === '-') continue;
+    const n = parseFloat(part);
+    if (!isNaN(n)) total += n;
+  }
+  return total;
+}
+
+processBtn.addEventListener('click', () => {
+  processStatus.className = 'status';
+  try {
+    if (!sourceRows) throw new Error('Upload a file first.');
+    const r = RESOLVED;
+
+    // Build a working row per order, then sort A-Z by email (case-insensitive)
+    const built = sourceRows.map(row => ({
+      orderNumber: row[r.orderNumber] || '',
+      name: row[r.name] || '',
+      email: row[r.email] || '',
+      dpTotal: sumPipeAmounts(row[r.dpTotal]),
+      orderTotal: sumPipeAmounts(row[r.allocation]),
+      refund: sumPipeAmounts(row[r.outstanding]),
+      refundDetails: row[r.refundDetails] || ''
+    }));
+
+    built.sort((a, b) => a.email.trim().toLowerCase().localeCompare(b.email.trim().toLowerCase()));
+
+    // For each run of matching emails, put the group's total refund on the first
+    // row only (blank on the rest) — rows are not merged, just grouped by the sort.
+    outputRows = [OUTPUT_HEADERS];
+    for (let i = 0; i < built.length; i++){
+      const emailKey = built[i].email.trim().toLowerCase();
+      let totalRefundCell = '';
+      if (i === 0 || built[i - 1].email.trim().toLowerCase() !== emailKey){
+        let sum = 0;
+        for (let j = i; j < built.length && built[j].email.trim().toLowerCase() === emailKey; j++){
+          sum += built[j].refund;
+        }
+        totalRefundCell = sum;
+      }
+      outputRows.push([
+        built[i].orderNumber,
+        built[i].name,
+        built[i].email,
+        built[i].dpTotal,
+        built[i].orderTotal,
+        built[i].refund,
+        totalRefundCell,
+        built[i].refundDetails,
+        ''
+      ]);
+    }
+    processStatus.className = 'status ok';
+    processStatus.textContent = `Built ${outputRows.length - 1} row(s).`;
+    renderPreview(outputRows);
+  } catch(err){
+    processStatus.className = 'status err';
+    processStatus.textContent = 'Error: ' + err.message;
+  }
+});
+
+function renderPreview(rows){
+  rowCount.textContent = `${rows.length - 1} order row(s)`;
+  const maxRows = Math.min(rows.length, 16);
+  let html = '<thead><tr>' + rows[0].map(h => `<th>${escapeHtml(h)}</th>`).join('') + '</tr></thead><tbody>';
+  for (let i=1;i<maxRows;i++){
+    html += '<tr>' + rows[i].map((c, idx) => {
+      const isMoney = idx===3 || idx===4 || idx===5 || idx===6;
+      let val = c;
+      if (isMoney && c !== ''){
+        val = Number(c).toLocaleString('en-PH', {minimumFractionDigits:2, maximumFractionDigits:2});
+      }
+      return `<td>${escapeHtml(String(val))}</td>`;
+    }).join('') + '</tr>';
+  }
+  html += '</tbody>';
+  previewTable.innerHTML = html;
+  previewCard.style.display = 'block';
+}
+
+function escapeHtml(str){
+  return str.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+downloadBtn.addEventListener('click', () => {
+  if (!outputRows) return;
+  const ws = XLSX.utils.aoa_to_sheet(outputRows);
+
+  // currency number format on DP Total Amount / Order Total / Refund columns
+  const range = XLSX.utils.decode_range(ws['!ref']);
+  for (let R = 1; R <= range.e.r; R++){
+    for (const C of [3,4,5,6]){
+      const addr = XLSX.utils.encode_cell({r:R, c:C});
+      if (ws[addr]) ws[addr].z = '#,##0.00';
+    }
+  }
+  ws['!cols'] = [
+    {wch:24}, {wch:24}, {wch:28}, {wch:15}, {wch:13}, {wch:13}, {wch:14}, {wch:46}, {wch:24}
+  ];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Refunds');
+  const stamp = new Date().toISOString().slice(0,10);
+  XLSX.writeFile(wb, `Japstore_Refund_Sheet_${stamp}.xlsx`);
+});
+</script>
+</body>
+</html>
