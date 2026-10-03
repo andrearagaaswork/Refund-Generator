@@ -213,7 +213,9 @@
   <div class="card">
     <h2><span class="num">2</span> Build the refund sheet</h2>
     <p class="note">
-      Pulls <strong>Order Number</strong>, <strong>Customer</strong> → Name, <strong>Email</strong>, and <strong>Refund Details</strong> as-is.
+      Pulls <strong>Order Number</strong>, <strong>Customer</strong> → Name, <strong>Email</strong>, <strong>Primary Refund Details</strong>,
+      <strong>Refund QR</strong> (column AC) and <strong>Other Banks</strong> (column AD) as-is. If a cell holds a QR, the
+      <strong>QR link</strong> is pulled instead of the "View QR" text.
       Sums <strong>DP Total Amount per item</strong> → DP Total Amount, <strong>Allocation Amount</strong> → Order Total, and
       <strong>Outstanding Balance</strong> → Refund. Rows are sorted A–Z by email. When the same email appears on
       multiple orders, a <strong>TOTAL REFUND</strong> column shows the combined Refund for that email on its first
@@ -239,7 +241,7 @@
 </div>
 
 <script>
-const OUTPUT_HEADERS = ["Order Number","Name","Email","DP Total Amount","Order Total","Refund","TOTAL REFUND","Refund Details","Note"];
+const OUTPUT_HEADERS = ["Order Number","Name","Email","DP Total Amount","Order Total","Refund","TOTAL REFUND","Primary Refund Details","Refund QR","Other Banks","Note"];
 
 // Source column -> what we need, matched by header text (robust to column reordering)
 const COL = {
@@ -249,7 +251,12 @@ const COL = {
   dpTotal: ["DP Total Amount per item"],
   allocation: ["Allocation Amount"],
   outstanding: ["Outstanding Balance"],
-  refundDetails: ["Refund Details"]
+  refundDetails: ["Primary Refund Details","Refund Details"]
+};
+// Optional columns (header match first, then fall back to spreadsheet column position)
+const OPTIONAL_COL = {
+  refundQr: { names: ["Refund QR"], index: 28 },     // column AC
+  otherBanks: { names: ["Other Banks"], index: 29 }  // column AD
 };
 
 let sourceRows = null; // array of objects keyed by header
@@ -325,7 +332,23 @@ function parseWorkbook(arrayBuffer, filename){
 
   const wb = XLSX.read(arrayBuffer, {type:'array'});
   const sheet = wb.Sheets[wb.SheetNames[0]];
-  return XLSX.utils.sheet_to_json(sheet, {defval:''});
+  const rows = XLSX.utils.sheet_to_json(sheet, {defval:''});
+  // Swap cell text for its hyperlink target where one exists (QR links)
+  const range = XLSX.utils.decode_range(sheet['!ref']);
+  const headers = [];
+  for (let C = range.s.c; C <= range.e.c; C++){
+    const h = sheet[XLSX.utils.encode_cell({r: range.s.r, c: C})];
+    headers[C] = h ? String(h.v).trim() : '';
+  }
+  for (let i = 0; i < rows.length; i++){
+    for (let C = range.s.c; C <= range.e.c; C++){
+      const cell = sheet[XLSX.utils.encode_cell({r: range.s.r + 1 + i, c: C})];
+      if (cell && cell.l && cell.l.Target && headers[C] && headers[C] in rows[i]){
+        rows[i][headers[C]] = cell.l.Target;
+      }
+    }
+  }
+  return rows;
 }
 
 function parseHtmlTable(text){
@@ -337,7 +360,11 @@ function parseHtmlTable(text){
   const headers = Array.from(trs[0].querySelectorAll('th,td')).map(td => td.textContent.trim());
   const rows = [];
   for (let i=1;i<trs.length;i++){
-    const cells = Array.from(trs[i].querySelectorAll('td,th')).map(td => td.textContent.trim());
+    // If a cell holds a link (e.g. "View primary QR"), keep the link itself
+    const cells = Array.from(trs[i].querySelectorAll('td,th')).map(td => {
+      const a = td.querySelector('a[href]');
+      return a ? a.getAttribute('href').trim() : td.textContent.trim();
+    });
     if (!cells.length || cells.every(c => c === '')) continue;
     const obj = {};
     headers.forEach((h, idx) => { obj[h] = cells[idx] !== undefined ? cells[idx] : ''; });
@@ -365,6 +392,10 @@ function validateHeaders(firstRow){
   }
   if (missing.length){
     throw new Error('Missing expected column(s): ' + missing.join(', '));
+  }
+  const keys = Object.keys(firstRow);
+  for (const f in OPTIONAL_COL){
+    resolved[f] = findKey(firstRow, OPTIONAL_COL[f].names) || keys[OPTIONAL_COL[f].index] || null;
   }
   RESOLVED = resolved;
 }
@@ -399,7 +430,9 @@ processBtn.addEventListener('click', () => {
       dpTotal: sumPipeAmounts(row[r.dpTotal]),
       orderTotal: sumPipeAmounts(row[r.allocation]),
       refund: sumPipeAmounts(row[r.outstanding]),
-      refundDetails: row[r.refundDetails] || ''
+      refundDetails: row[r.refundDetails] || '',
+      refundQr: r.refundQr ? (row[r.refundQr] || '') : '',
+      otherBanks: r.otherBanks ? (row[r.otherBanks] || '') : ''
     }));
 
     built.sort((a, b) => a.email.trim().toLowerCase().localeCompare(b.email.trim().toLowerCase()));
@@ -426,6 +459,8 @@ processBtn.addEventListener('click', () => {
         built[i].refund,
         totalRefundCell,
         built[i].refundDetails,
+        built[i].refundQr,
+        built[i].otherBanks,
         ''
       ]);
     }
@@ -474,7 +509,7 @@ downloadBtn.addEventListener('click', () => {
     }
   }
   ws['!cols'] = [
-    {wch:24}, {wch:24}, {wch:28}, {wch:15}, {wch:13}, {wch:13}, {wch:14}, {wch:46}, {wch:24}
+    {wch:24}, {wch:24}, {wch:28}, {wch:15}, {wch:13}, {wch:13}, {wch:14}, {wch:46}, {wch:46}, {wch:46}, {wch:24}
   ];
 
   const wb = XLSX.utils.book_new();
